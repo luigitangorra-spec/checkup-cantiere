@@ -49,7 +49,7 @@ export async function sendReportEmail(input: SendReportEmailInput) {
     signatureCompany,
     signaturePhone
   ].filter((line) => line !== undefined).join("\n");
-  ].join("\n");
+
 
   if (provider === "brevo") {
     return sendWithBrevo({ from, subject, text, ...input });
