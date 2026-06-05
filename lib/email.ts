@@ -91,7 +91,7 @@ async function sendWithBrevo(input: SendReportEmailInput & { from: string; subje
   });
 
   if (!response.ok) {
-    return "brevo_error";
+    return `brevo_error_${response.status}`;
   }
 
   return "sent_brevo";
