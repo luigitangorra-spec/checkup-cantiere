@@ -73,7 +73,7 @@ async function sendWithBrevo(input: SendReportEmailInput & { from: string; subje
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
-      "x-api-key": apiKey,
+      "api-key": apiKey,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
