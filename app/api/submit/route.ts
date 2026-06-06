@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { sendReportEmail } from "@/lib/email";
+import { addBrevoContactForFollowup, sendReportEmail } from "@/lib/email";
 import { saveLocalLead, saveLocalReport, updateLocalLeadEmailStatus } from "@/lib/local-store";
 import { createReportPdf } from "@/lib/pdf";
 import { buildAssessment, calculateScore, scoreProfile } from "@/lib/quiz";
@@ -31,6 +31,7 @@ export async function POST(request: Request) {
     const pdf = await createReportPdf({ ...payload.lead, score, level, summary }, answers);
 
     const supabase = getSupabaseAdmin();
+    const isVercel = Boolean(process.env.VERCEL);
     const leadRecord = {
       id,
       name: payload.lead.name,
@@ -50,6 +51,14 @@ export async function POST(request: Request) {
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
+    } else if (isVercel) {
+      return NextResponse.json(
+        {
+          error:
+            "Supabase non configurato su Vercel. Aggiungi SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY nelle Environment Variables e rifai il deploy."
+        },
+        { status: 500 }
+      );
     } else {
       await saveLocalReport(id, pdf);
       await saveLocalLead(leadRecord);
@@ -69,10 +78,24 @@ export async function POST(request: Request) {
       emailStatus = "email_error";
     }
 
+    let followupStatus = "followup_not_requested";
+    if ((process.env.EMAIL_PROVIDER || "").toLowerCase() === "brevo") {
+      try {
+        followupStatus = await addBrevoContactForFollowup({
+          email: payload.lead.email,
+          name: payload.lead.name
+        });
+      } catch {
+        followupStatus = "followup_error";
+      }
+    }
+
+    const deliveryStatus = `${emailStatus} | ${followupStatus}`;
+
     if (supabase) {
-      await supabase.from(leadsTable()).update({ email_status: emailStatus }).eq("id", id);
+      await supabase.from(leadsTable()).update({ email_status: deliveryStatus }).eq("id", id);
     } else {
-      await updateLocalLeadEmailStatus(id, emailStatus);
+      await updateLocalLeadEmailStatus(id, deliveryStatus);
     }
 
     return NextResponse.json(
@@ -84,7 +107,8 @@ export async function POST(request: Request) {
         assessment,
         reportUrl: `/api/reports/${id}`,
         consultationUrl,
-        emailStatus
+        emailStatus,
+        followupStatus
       },
       { status: 201 }
     );
