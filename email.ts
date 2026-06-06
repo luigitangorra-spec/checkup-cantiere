@@ -8,6 +8,81 @@ type SendReportEmailInput = {
   consultationUrl: string;
 };
 
+type BrevoFollowupInput = {
+  email: string;
+  name: string;
+  phone: string;
+};
+
+function normalizeItalianPhone(phone: string) {
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+
+  if (!digits) {
+    return "";
+  }
+
+  if (trimmed.startsWith("+")) {
+    return `+${digits}`;
+  }
+
+  if (digits.startsWith("00")) {
+    return `+${digits.slice(2)}`;
+  }
+
+  if (digits.startsWith("39") && digits.length > 10) {
+    return `+${digits}`;
+  }
+
+  return `+39${digits}`;
+}
+
+function splitFullName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+
+  return {
+    firstName: parts[0] || "",
+    lastName: parts.slice(1).join(" ")
+  };
+}
+
+async function getBrevoNameAttributeKeys(apiKey: string) {
+  const fallback = {
+    firstName: "FIRSTNAME",
+    lastName: "LASTNAME"
+  };
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/contacts/attributes", {
+      headers: {
+        "api-key": apiKey,
+        Accept: "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      return fallback;
+    }
+
+    const body = (await response.json()) as {
+      attributes?: Array<{ name?: string }>;
+    };
+    const names = new Set(
+      (body.attributes || [])
+        .map((attribute) => attribute.name?.toUpperCase())
+        .filter((name): name is string => Boolean(name))
+    );
+    const firstName =
+      ["FIRSTNAME", "FIRST_NAME", "NOME"].find((name) => names.has(name)) || fallback.firstName;
+    const lastName =
+      ["LASTNAME", "LAST_NAME", "COGNOME"].find((name) => names.has(name)) || fallback.lastName;
+
+    return { firstName, lastName };
+  } catch {
+    return fallback;
+  }
+}
+
 export async function sendReportEmail(input: SendReportEmailInput) {
   const provider = (process.env.EMAIL_PROVIDER || "resend").toLowerCase();
   const from = process.env.EMAIL_FROM || "report@checkupcantiere.it";
@@ -50,7 +125,6 @@ export async function sendReportEmail(input: SendReportEmailInput) {
     signaturePhone
   ].filter((line) => line !== undefined).join("\n");
 
-
   if (provider === "brevo") {
     return sendWithBrevo({ from, subject, text, ...input });
   }
@@ -85,7 +159,7 @@ async function sendWithResend(input: SendReportEmailInput & { from: string; subj
   });
 
   if (!response.ok) {
-    return "resend_error";
+    return `resend_error_${response.status}`;
   }
 
   return "sent_resend";
@@ -100,7 +174,7 @@ async function sendWithBrevo(input: SendReportEmailInput & { from: string; subje
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
-      "x-api-key": apiKey,
+      "api-key": apiKey,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -118,8 +192,57 @@ async function sendWithBrevo(input: SendReportEmailInput & { from: string; subje
   });
 
   if (!response.ok) {
-    return "brevo_error";
+    return `brevo_error_${response.status}`;
   }
 
   return "sent_brevo";
+}
+
+export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
+  const apiKey = process.env.BREVO_API_KEY?.trim();
+  const listId = Number(process.env.BREVO_FOLLOWUP_LIST_ID?.trim() || "0");
+  const { firstName, lastName } = splitFullName(input.name);
+  const sms = normalizeItalianPhone(input.phone);
+
+  if (!apiKey) {
+    return "followup_not_configured";
+  }
+
+  if (!Number.isInteger(listId) || listId <= 0) {
+    return "followup_invalid_list_id";
+  }
+
+  const attributeKeys = await getBrevoNameAttributeKeys(apiKey);
+  const response = await fetch("https://api.brevo.com/v3/contacts", {
+    method: "POST",
+    headers: {
+      "api-key": apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      email: input.email,
+      updateEnabled: true,
+      listIds: [listId],
+      attributes: {
+        [attributeKeys.firstName]: firstName,
+        [attributeKeys.lastName]: lastName,
+        SMS: sms
+      }
+    })
+  });
+
+  if (!response.ok) {
+    let errorCode = "";
+
+    try {
+      const body = (await response.json()) as { code?: string };
+      errorCode = body.code ? `_${body.code.replace(/[^a-z0-9_-]/gi, "")}` : "";
+    } catch {
+      // The HTTP status is enough when Brevo does not return JSON.
+    }
+
+    return `followup_brevo_error_${response.status}${errorCode}`;
+  }
+
+  return "followup_added_brevo";
 }
