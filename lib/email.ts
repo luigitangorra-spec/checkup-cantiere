@@ -11,7 +11,31 @@ type SendReportEmailInput = {
 type BrevoFollowupInput = {
   email: string;
   name: string;
+  phone: string;
 };
+
+function normalizeItalianPhone(phone: string) {
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+
+  if (!digits) {
+    return "";
+  }
+
+  if (trimmed.startsWith("+")) {
+    return `+${digits}`;
+  }
+
+  if (digits.startsWith("00")) {
+    return `+${digits.slice(2)}`;
+  }
+
+  if (digits.startsWith("39") && digits.length > 10) {
+    return `+${digits}`;
+  }
+
+  return `+39${digits}`;
+}
 
 export async function sendReportEmail(input: SendReportEmailInput) {
   const provider = (process.env.EMAIL_PROVIDER || "resend").toLowerCase();
@@ -129,8 +153,10 @@ async function sendWithBrevo(input: SendReportEmailInput & { from: string; subje
 }
 
 export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
-  const apiKey = process.env.BREVO_API_KEY;
-  const listId = Number(process.env.BREVO_FOLLOWUP_LIST_ID || "0");
+  const apiKey = process.env.BREVO_API_KEY?.trim();
+  const listId = Number(process.env.BREVO_FOLLOWUP_LIST_ID?.trim() || "0");
+  const firstName = input.name.trim();
+  const sms = normalizeItalianPhone(input.phone);
 
   if (!apiKey) {
     return "followup_not_configured";
@@ -151,7 +177,8 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
       updateEnabled: true,
       listIds: [listId],
       attributes: {
-        FIRSTNAME: input.name
+        FIRSTNAME: firstName,
+        SMS: sms
       }
     })
   });
