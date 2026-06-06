@@ -83,7 +83,8 @@ export async function POST(request: Request) {
       try {
         followupStatus = await addBrevoContactForFollowup({
           email: payload.lead.email,
-          name: payload.lead.name
+          name: payload.lead.name,
+          phone: payload.lead.phone
         });
       } catch {
         followupStatus = "followup_error";
