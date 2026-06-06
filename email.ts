@@ -178,6 +178,8 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
   const attributes = {
     FIRSTNAME: firstName,
     LASTNAME: lastName,
+    NOME: firstName,
+    COGNOME: lastName,
     SMS: sms
   };
   const response = await fetch("https://api.brevo.com/v3/contacts", {
@@ -226,5 +228,5 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
     return `followup_update_error_${updateResponse.status}`;
   }
 
-  return "followup_added_brevo";
+  return "followup_added_brevo_final";
 }
