@@ -37,6 +37,15 @@ function normalizeItalianPhone(phone: string) {
   return `+39${digits}`;
 }
 
+function splitFullName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+
+  return {
+    firstName: parts[0] || "",
+    lastName: parts.slice(1).join(" ")
+  };
+}
+
 export async function sendReportEmail(input: SendReportEmailInput) {
   const provider = (process.env.EMAIL_PROVIDER || "resend").toLowerCase();
   const from = process.env.EMAIL_FROM || "report@checkupcantiere.it";
@@ -155,7 +164,7 @@ async function sendWithBrevo(input: SendReportEmailInput & { from: string; subje
 export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
   const apiKey = process.env.BREVO_API_KEY?.trim();
   const listId = Number(process.env.BREVO_FOLLOWUP_LIST_ID?.trim() || "0");
-  const fullName = input.name.trim();
+  const { firstName, lastName } = splitFullName(input.name);
   const sms = normalizeItalianPhone(input.phone);
 
   if (!apiKey) {
@@ -167,7 +176,8 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
   }
 
   const attributes = {
-    NOME: fullName,
+    FIRSTNAME: firstName,
+    LASTNAME: lastName,
     SMS: sms
   };
   const response = await fetch("https://api.brevo.com/v3/contacts", {
