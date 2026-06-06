@@ -48,8 +48,8 @@ function splitFullName(fullName: string) {
 
 async function getBrevoNameAttributeKeys(apiKey: string) {
   const fallback = {
-    firstName: "FIRSTNAME",
-    lastName: "LASTNAME"
+    firstNames: ["FIRSTNAME"],
+    lastNames: ["LASTNAME"]
   };
 
   try {
@@ -72,15 +72,35 @@ async function getBrevoNameAttributeKeys(apiKey: string) {
         .map((attribute) => attribute.name?.toUpperCase())
         .filter((name): name is string => Boolean(name))
     );
-    const firstName =
-      ["FIRSTNAME", "FIRST_NAME", "NOME"].find((name) => names.has(name)) || fallback.firstName;
-    const lastName =
-      ["LASTNAME", "LAST_NAME", "COGNOME"].find((name) => names.has(name)) || fallback.lastName;
+    const firstNames = ["FIRSTNAME", "FIRST_NAME", "NOME"].filter((name) => names.has(name));
+    const lastNames = ["LASTNAME", "LAST_NAME", "COGNOME"].filter((name) => names.has(name));
 
-    return { firstName, lastName };
+    return {
+      firstNames: firstNames.length ? firstNames : fallback.firstNames,
+      lastNames: lastNames.length ? lastNames : fallback.lastNames
+    };
   } catch {
     return fallback;
   }
+}
+
+function buildBrevoContactAttributes(
+  attributeKeys: { firstNames: string[]; lastNames: string[] },
+  firstName: string,
+  lastName: string,
+  sms: string
+) {
+  const attributes: Record<string, string> = { SMS: sms };
+
+  for (const key of attributeKeys.firstNames) {
+    attributes[key] = firstName;
+  }
+
+  for (const key of attributeKeys.lastNames) {
+    attributes[key] = lastName;
+  }
+
+  return attributes;
 }
 
 export async function sendReportEmail(input: SendReportEmailInput) {
@@ -213,6 +233,7 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
   }
 
   const attributeKeys = await getBrevoNameAttributeKeys(apiKey);
+  const attributes = buildBrevoContactAttributes(attributeKeys, firstName, lastName, sms);
   const response = await fetch("https://api.brevo.com/v3/contacts", {
     method: "POST",
     headers: {
@@ -223,11 +244,7 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
       email: input.email,
       updateEnabled: true,
       listIds: [listId],
-      attributes: {
-        [attributeKeys.firstName]: firstName,
-        [attributeKeys.lastName]: lastName,
-        SMS: sms
-      }
+      attributes
     })
   });
 
@@ -242,6 +259,25 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
     }
 
     return `followup_brevo_error_${response.status}${errorCode}`;
+  }
+
+  const updateResponse = await fetch(
+    `https://api.brevo.com/v3/contacts/${encodeURIComponent(input.email)}`,
+    {
+      method: "PUT",
+      headers: {
+        "api-key": apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        attributes,
+        listIds: [listId]
+      })
+    }
+  );
+
+  if (!updateResponse.ok) {
+    return `followup_update_error_${updateResponse.status}`;
   }
 
   return "followup_added_brevo";
