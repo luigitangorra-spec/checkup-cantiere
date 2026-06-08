@@ -94,6 +94,8 @@ export type SelectedAnswers = Record<string, QuizOption>;
 export type ReportAssessment = {
   criticities: string[];
   improvements: string[];
+  urgentActions: string[];
+  risks: string[];
   benefits: string[];
 };
 
@@ -149,6 +151,8 @@ export function scoreProfile(score: number) {
 export function buildAssessment(answers: SelectedAnswers): ReportAssessment {
   const criticities: string[] = [];
   const improvements: string[] = [];
+  const urgentActions: string[] = [];
+  const risks: string[] = [];
   const benefits = [
     "Riduzione tempi amministrativi",
     "Maggiore controllo costi",
@@ -157,48 +161,62 @@ export function buildAssessment(answers: SelectedAnswers): ReportAssessment {
     "Maggiore produttivita dei cantieri"
   ];
 
-  const add = (condition: boolean, criticity: string, improvement: string) => {
+  const add = (condition: boolean, criticity: string, improvement: string, urgentAction: string, risk: string) => {
     if (!condition) {
       return;
     }
     criticities.push(criticity);
     improvements.push(improvement);
+    urgentActions.push(urgentAction);
+    risks.push(risk);
   };
 
   add(
     ["WhatsApp", "Telefonate", "Fogli Excel", "Altro"].includes(answers.cantieri_management?.label),
-    "Gestione cantieri distribuita su strumenti non integrati.",
-    "Centralizzare commesse, attivita, responsabili e stati avanzamento in un unico ambiente operativo."
+    "La gestione dei cantieri e distribuita su strumenti non integrati. Questo crea una dipendenza eccessiva da persone, messaggi e memoria operativa.",
+    "Centralizzare commesse, attivita, responsabili e stati avanzamento in un unico ambiente operativo.",
+    "Definire entro breve un sistema unico per gestire commesse, scadenze, responsabilita e stato dei cantieri.",
+    "Senza un presidio centrale, aumentano ritardi, decisioni basate su dati incompleti e perdita di controllo sull'avanzamento reale."
   );
 
   add(
     ["Non esiste una procedura standard", "WhatsApp", "Rapportini cartacei"].includes(answers.daily_info?.label),
-    "Informazioni quotidiane esposte a ritardi, duplicazioni e perdita di contesto.",
-    "Introdurre una procedura standard per rapportini digitali e comunicazioni ufficio-cantiere."
+    "Le informazioni quotidiane dai capicantiere non sono strutturate in modo affidabile. Il rischio e che dati importanti arrivino tardi, incompleti o non verificabili.",
+    "Introdurre una procedura standard per rapportini digitali e comunicazioni ufficio-cantiere.",
+    "Standardizzare il flusso giornaliero dei rapportini con campi obbligatori, responsabili e tempi di invio definiti.",
+    "La mancata standardizzazione rende difficile ricostruire cosa e successo in cantiere e rallenta le decisioni dell'ufficio."
   );
 
   add(
     ["5-10 ore", "Oltre 10 ore"].includes(answers.data_collection_time?.label),
-    "Molto tempo assorbito da raccolta e verifica manuale dei dati.",
-    "Automatizzare raccolta dati da cantiere e validazione delle informazioni operative."
+    "La raccolta e verifica manuale dei dati assorbe troppo tempo ogni settimana. Questo e un costo nascosto che riduce produttivita e velocita di controllo.",
+    "Automatizzare raccolta dati da cantiere e validazione delle informazioni operative.",
+    "Eliminare passaggi doppi e reinserimenti manuali, portando i dati di cantiere direttamente in una dashboard operativa.",
+    "Continuare con processi manuali mantiene alto il rischio di errori, ritardi amministrativi e dati non confrontabili tra cantieri."
   );
 
   add(
     ["No", "Solo a fine mese"].includes(answers.real_time_cost_control?.label),
-    "Controllo economico tardivo su costi, materiali e ore lavorate.",
-    "Attivare dashboard per costi, ore, materiali e margini per singolo cantiere."
+    "Il controllo economico non e disponibile in tempo reale. Costi, materiali e ore vengono letti troppo tardi rispetto all'andamento effettivo della commessa.",
+    "Attivare dashboard per costi, ore, materiali e margini per singolo cantiere.",
+    "Costruire un controllo per commessa con ore, materiali, costi consuntivi e scostamenti rispetto al preventivo.",
+    "Se il controllo resta a fine mese, eventuali extra costi emergono quando il margine e gia compromesso."
   );
 
   add(
     ["WhatsApp", "Archivio cartaceo", "Altro"].includes(answers.site_documents?.label),
-    "Rischio di perdita documentale e difficolta nel recupero di foto, verbali e certificazioni.",
-    "Organizzare documenti, foto e verbali in un archivio digitale collegato alla commessa."
+    "La gestione documentale espone l'impresa a perdita di foto, verbali, certificazioni e informazioni tecniche. La documentazione non e sempre recuperabile rapidamente.",
+    "Organizzare documenti, foto e verbali in un archivio digitale collegato alla commessa.",
+    "Creare un archivio documentale per cantiere con categorie, permessi, foto, verbali, certificazioni e storico consultabile.",
+    "Una documentazione dispersa aumenta contestazioni, rallenta verifiche e rende piu debole la tracciabilita verso clienti e fornitori."
   );
 
   add(
     ["Non esiste un monitoraggio strutturato", "Verifiche manuali", "Excel"].includes(answers.work_progress_sal?.label),
-    "Monitoraggio avanzamento lavori e SAL poco strutturato.",
-    "Digitalizzare pianificazione, avanzamento lavori e SAL con indicatori aggiornati."
+    "Il monitoraggio di avanzamento lavori e SAL non appare sufficientemente strutturato. Questo limita la capacita di prevedere ritardi e governare la produzione.",
+    "Digitalizzare pianificazione, avanzamento lavori e SAL con indicatori aggiornati.",
+    "Impostare un controllo periodico su avanzamento, SAL, scostamenti, blocchi e prossime attivita per ogni cantiere.",
+    "Senza monitoraggio strutturato, ritardi e blocchi emergono tardi e diventano piu costosi da correggere."
   );
 
   const mainIssue = answers.main_inefficiency?.label;
@@ -209,12 +227,16 @@ export function buildAssessment(answers: SelectedAnswers): ReportAssessment {
   return {
     criticities: criticities.slice(0, 5),
     improvements: improvements.slice(0, 5),
+    urgentActions: urgentActions.slice(0, 5),
+    risks: risks.slice(0, 5),
     benefits
   };
 }
 
 export const recommendations = [
-  "Definire un flusso digitale standard per raccolta dati, rapportini e documenti di cantiere.",
-  "Collegare avanzamento lavori, ore, materiali e costi a una dashboard di controllo per commessa.",
-  "Ridurre l'uso di canali dispersi come WhatsApp, telefonate e archivi cartacei nei processi critici."
+  "Avviare un audit operativo sui flussi ufficio-cantiere per identificare passaggi manuali, colli di bottiglia e dati mancanti.",
+  "Definire un modello unico di gestione cantiere: rapportini, documenti, ore, materiali, SAL e responsabilita.",
+  "Implementare una dashboard direzionale che evidenzi costi, scostamenti, avanzamento lavori e criticita per singola commessa.",
+  "Ridurre l'uso di canali dispersi come WhatsApp, telefonate e archivi cartacei nei processi critici.",
+  "Stabilire indicatori minimi da controllare ogni settimana: ore lavorate, materiali usati, avanzamento, blocchi, documenti mancanti e margine stimato."
 ];

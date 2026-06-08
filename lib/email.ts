@@ -170,28 +170,37 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
   if (!apiKey) {
     return "followup_not_configured";
   }
+  const brevoApiKey = apiKey;
 
   if (!Number.isInteger(listId) || listId <= 0) {
     return "followup_invalid_list_id";
   }
 
-  const response = await fetch("https://api.brevo.com/v3/contacts", {
-    method: "POST",
-    headers: {
-      "api-key": apiKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      email: input.email,
-      updateEnabled: true,
-      listIds: [listId],
-      attributes: {
-        NOME: firstName,
-        COGNOME: lastName,
-        SMS: sms
-      }
-    })
-  });
+  const attributes: Record<string, string> = {
+    FIRSTNAME: firstName,
+    LASTNAME: lastName,
+    SMS: sms
+  };
+  let savedAttributes = attributes;
+  let phoneWasDuplicate = false;
+
+  async function saveContact(contactAttributes: Record<string, string>) {
+    return fetch("https://api.brevo.com/v3/contacts", {
+      method: "POST",
+      headers: {
+        "api-key": brevoApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email: input.email,
+        updateEnabled: true,
+        listIds: [listId],
+        attributes: contactAttributes
+      })
+    });
+  }
+
+  let response = await saveContact(savedAttributes);
 
   if (!response.ok) {
     let errorCode = "";
@@ -203,8 +212,40 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
       // The HTTP status is enough when Brevo does not return JSON.
     }
 
-    return `followup_brevo_error_${response.status}${errorCode}`;
+    if (response.status === 400 && errorCode === "_duplicate_parameter") {
+      phoneWasDuplicate = true;
+      savedAttributes = {
+        FIRSTNAME: firstName,
+        LASTNAME: lastName
+      };
+      response = await saveContact(savedAttributes);
+    }
+
+    if (!response.ok) {
+      return `followup_brevo_error_${response.status}${errorCode}`;
+    }
   }
 
-  return "followup_added_brevo";
+  const updateResponse = await fetch(
+    `https://api.brevo.com/v3/contacts/${encodeURIComponent(input.email)}`,
+    {
+      method: "PUT",
+      headers: {
+        "api-key": brevoApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        attributes: savedAttributes,
+        listIds: [listId]
+      })
+    }
+  );
+
+  if (!updateResponse.ok) {
+    return `followup_update_error_${updateResponse.status}`;
+  }
+
+  return phoneWasDuplicate
+    ? "followup_added_brevo_phone_duplicate"
+    : "followup_added_brevo";
 }

@@ -51,7 +51,7 @@ function createPdfStream(lines: PdfLine[]) {
   const commands = ["BT", "/F1 9 Tf", "45 800 Td"];
   let activeFont = "F1";
 
-  lines.slice(0, 58).forEach((line, index) => {
+  lines.forEach((line, index) => {
     if (index > 0) {
       commands.push("0 -13 Td");
     }
@@ -65,6 +65,18 @@ function createPdfStream(lines: PdfLine[]) {
 
   commands.push("ET");
   return commands.join("\n");
+}
+
+function createPageObject(contentObjectId: number) {
+  return `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjectId} 0 R >>`;
+}
+
+function chunkLines(lines: PdfLine[], size = 58) {
+  const pages: PdfLine[][] = [];
+  for (let index = 0; index < lines.length; index += size) {
+    pages.push(lines.slice(index, index + size));
+  }
+  return pages;
 }
 
 export async function createReportPdf(lead: ReportLead, answers: SelectedAnswers) {
@@ -83,6 +95,27 @@ export async function createReportPdf(lead: ReportLead, answers: SelectedAnswers
   ];
 
   addWrappedLines(lines, lead.summary);
+  lines.push(
+    { text: "" },
+    {
+      text:
+        "Questa relazione evidenzia le criticita operative che richiedono intervento prioritario. Le aree indicate non sono semplici ottimizzazioni: se non presidiate, possono generare ritardi, extracosti, perdita di tracciabilita e minore controllo sui margini.",
+      bold: false
+    },
+    { text: "" },
+    { text: "Interventi da attivare con priorita:", bold: true }
+  );
+
+  for (const item of assessment.urgentActions) {
+    addWrappedLines(lines, `- ${item}`);
+  }
+
+  lines.push({ text: "" }, { text: "Rischi se non si interviene:", bold: true });
+
+  for (const item of assessment.risks) {
+    addWrappedLines(lines, `- ${item}`);
+  }
+
   lines.push({ text: "" }, { text: "Criticita rilevate:", bold: true });
 
   for (const item of assessment.criticities) {
@@ -111,15 +144,21 @@ export async function createReportPdf(lead: ReportLead, answers: SelectedAnswers
     addWrappedLines(lines, `  Risposta: ${selected?.label || ""}`);
   }
 
-  const stream = createPdfStream(lines);
-  const streamBuffer = Buffer.from(stream, "latin1");
+  const pages = chunkLines(lines);
+  const pageObjectStart = 5;
+  const contentObjectStart = pageObjectStart + pages.length;
+  const pageRefs = pages.map((_, index) => `${pageObjectStart + index} 0 R`).join(" ");
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>",
+    `<< /Type /Pages /Kids [${pageRefs}] /Count ${pages.length} >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-    `<< /Length ${streamBuffer.length} >>\nstream\n${stream}\nendstream`
+    ...pages.map((_, index) => createPageObject(contentObjectStart + index)),
+    ...pages.map((pageLines) => {
+      const stream = createPdfStream(pageLines);
+      const streamBuffer = Buffer.from(stream, "latin1");
+      return `<< /Length ${streamBuffer.length} >>\nstream\n${stream}\nendstream`;
+    })
   ];
 
   const chunks: Buffer[] = [Buffer.from("%PDF-1.4\n", "latin1")];

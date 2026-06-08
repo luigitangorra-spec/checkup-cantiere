@@ -11,6 +11,8 @@ type Result = {
   assessment?: {
     criticities: string[];
     improvements: string[];
+    urgentActions: string[];
+    risks: string[];
     benefits: string[];
   };
   reportUrl: string;
@@ -141,6 +143,12 @@ export default function HomePage() {
                 <h3>Criticita rilevate</h3>
                 <ul>
                   {result.assessment.criticities.slice(0, 3).map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                <h3>Interventi prioritari</h3>
+                <ul>
+                  {result.assessment.urgentActions.slice(0, 3).map((item) => (
                     <li key={item}>{item}</li>
                   ))}
                 </ul>

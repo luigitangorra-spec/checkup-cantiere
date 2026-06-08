@@ -33,3 +33,7 @@ export function getSupabaseAdmin() {
 export function leadsTable() {
   return process.env.SUPABASE_LEADS_TABLE || "leads";
 }
+
+export function prospectsTable() {
+  return process.env.SUPABASE_PROSPECTS_TABLE || "prospects";
+}
