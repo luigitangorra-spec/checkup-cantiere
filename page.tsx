@@ -1,179 +1,331 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { questions } from "@/lib/quiz";
+import { useEffect, useState } from "react";
+import { searchAreas, targetCategories } from "@/lib/prospecting";
 
-type Result = {
+type Lead = {
   id: string;
+  created_at: string;
+  name: string;
+  company: string;
+  email: string;
+  phone: string;
   score: number;
   level: string;
-  summary: string;
-  assessment?: {
-    criticities: string[];
-    improvements: string[];
-    urgentActions: string[];
-    risks: string[];
-    benefits: string[];
-  };
-  reportUrl: string;
-  consultationUrl: string;
-  emailStatus: string;
+  email_status: string;
 };
 
-export default function HomePage() {
+type Prospect = {
+  id: string;
+  company: string;
+  category_label: string;
+  target_tier: string;
+  address: string;
+  phone: string;
+  email: string;
+  website: string;
+  maps_url: string;
+  rating: number | null;
+  reviews_count: number;
+  score: number;
+  priority: string;
+  status: "new" | "approved" | "discarded" | "contacted";
+  contact_data_status: string;
+  brevo_status: string;
+  qualification_notes: string;
+};
+
+export default function AdminPage() {
+  const [token, setToken] = useState("");
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [prospects, setProspects] = useState<Prospect[]>([]);
   const [status, setStatus] = useState("");
-  const [result, setResult] = useState<Result | null>(null);
-  const consultationUrl = process.env.NEXT_PUBLIC_CALENDLY_URL || "https://calendly.com/checkupcantiere/consulenza";
-  const calendlyEmbed = useMemo(() => `${consultationUrl}?hide_gdpr_banner=1`, [consultationUrl]);
+  const [view, setView] = useState<"leads" | "prospects">("leads");
+  const [categoryId, setCategoryId] = useState("imprese-edili");
+  const [areaId, setAreaId] = useState("bari");
+  const [searching, setSearching] = useState(false);
 
-  async function submitLead(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatus("Generazione report in corso...");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token") || "";
+    setToken(urlToken);
+    if (urlToken) {
+      void loadLeads(urlToken);
+      void loadProspects(urlToken);
+    }
+  }, []);
 
-    const formData = new FormData(event.currentTarget);
-    const lead = Object.fromEntries(["name", "company", "email", "phone"].map((key) => [key, formData.get(key)]));
-    const answers = Object.fromEntries(questions.map((question) => [question.id, Number(formData.get(question.id))]));
-
+  async function loadLeads(activeToken = token) {
+    setStatus("Caricamento lead...");
     try {
-      const response = await fetch("/api/submit", {
+      const response = await fetch(`/api/leads?token=${encodeURIComponent(activeToken)}`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Accesso non riuscito");
+      }
+      setLeads(payload);
+      setStatus(`${payload.length} lead caricati.`);
+    } catch (error) {
+      setLeads([]);
+      setStatus(error instanceof Error ? error.message : "Errore durante il caricamento");
+    }
+  }
+
+  async function loadProspects(activeToken = token) {
+    try {
+      const response = await fetch(`/api/prospects?token=${encodeURIComponent(activeToken)}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Caricamento prospect non riuscito");
+      setProspects(payload);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Errore durante il caricamento prospect");
+    }
+  }
+
+  async function searchProspects() {
+    setSearching(true);
+    setStatus("Ricerca aziende in corso...");
+    try {
+      const response = await fetch("/api/prospects/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lead, answers })
+        body: JSON.stringify({ token, categoryId, areaId, limit: 20 })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Ricerca non riuscita");
+      await loadProspects();
+      setStatus(`${payload.found} aziende trovate e aggiornate.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Errore durante la ricerca");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function updateProspect(id: string, nextStatus: Prospect["status"]) {
+    setStatus("Aggiornamento prospect...");
+    try {
+      const response = await fetch("/api/prospects", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, id, status: nextStatus })
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "Errore durante l'invio");
+        await loadProspects();
+        throw new Error(payload.error || "Aggiornamento non riuscito");
       }
-
-      setResult(payload);
-      setStatus(
-        payload.emailStatus.startsWith("sent")
-          ? "Report inviato via email."
-          : "Report creato. Configura Resend o Brevo per inviarlo automaticamente."
+      setProspects((current) =>
+        current.map((prospect) => (prospect.id === id ? payload : prospect))
       );
-
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("lead-submitted"));
-        const win = window as Window & {
-          gtag?: (...args: unknown[]) => void;
-          fbq?: (...args: unknown[]) => void;
-        };
-        win.gtag?.("event", "generate_lead", { score: payload.score });
-        win.fbq?.("track", "Lead");
-      }
+      setStatus(
+        nextStatus === "approved"
+          ? "Prospect approvato e trasferito nella lista Brevo."
+          : "Prospect aggiornato."
+      );
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Errore durante l'invio");
+      setStatus(error instanceof Error ? error.message : "Errore durante l'aggiornamento");
     }
   }
 
   return (
-    <main className="site-shell">
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="eyebrow">checkupcantiere.it</p>
-          <h1>Checkup Cantiere</h1>
-          <p className="intro">
-            Misura in 7 domande quanto la tua impresa edile e pronta a generare richieste qualificate online.
-          </p>
-          <a className="primary-link" href="#test">
-            Inizia il test
-          </a>
+    <main className="admin-shell">
+      <header className="admin-header">
+        <div>
+          <p className="eyebrow">Pannello admin</p>
+          <h1>Lead e score</h1>
         </div>
-        <div className="hero-panel">
-          <span className="panel-label">Output immediato</span>
-          <strong>Score 0-100</strong>
-          <span>Report PDF personalizzato via email</span>
-        </div>
+        <a className="secondary-link" href="/">
+          Vai al test
+        </a>
+      </header>
+
+      <section className="admin-tools">
+        <label>
+          Token admin
+          <input value={token} type="password" onChange={(event) => setToken(event.target.value)} />
+        </label>
+        <button className="submit-button" type="button" onClick={() => loadLeads()}>
+          Aggiorna dati
+        </button>
       </section>
 
-      <section id="test" className="test-layout">
-        <form className="form-panel" onSubmit={submitLead}>
-          <h2>Dati aziendali</h2>
-          <div className="field-grid">
-            <label>
-              Nome <input name="name" autoComplete="name" required />
-            </label>
-            <label>
-              Azienda <input name="company" autoComplete="organization" required />
-            </label>
-            <label>
-              Email <input name="email" type="email" autoComplete="email" required />
-            </label>
-            <label>
-              Telefono <input name="phone" autoComplete="tel" required />
-            </label>
-          </div>
+      <nav className="admin-tabs" aria-label="Sezioni amministrazione">
+        <button
+          type="button"
+          className={view === "leads" ? "active" : ""}
+          onClick={() => setView("leads")}
+        >
+          Lead del test
+        </button>
+        <button
+          type="button"
+          className={view === "prospects" ? "active" : ""}
+          onClick={() => setView("prospects")}
+        >
+          Ricerca aziende
+        </button>
+      </nav>
 
-          <h2>Quiz digitale</h2>
-          <div className="questions">
-            {questions.map((question, index) => (
-              <fieldset className="question" key={question.id}>
-                <legend>
-                  {index + 1}. {question.text}
-                </legend>
-                {question.options.map((option) => (
-                  <label className="option" key={`${question.id}-${option.value}`}>
-                    <input type="radio" name={question.id} value={option.value} required />
-                    <span>{option.label}</span>
-                  </label>
+      <p className="status">{status}</p>
+
+      {view === "leads" ? (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Nome</th>
+                <th>Azienda</th>
+                <th>Email</th>
+                <th>Telefono</th>
+                <th>Score</th>
+                <th>Profilo</th>
+                <th>Email</th>
+              </tr>
+            </thead>
+            <tbody>
+              {leads.map((lead) => (
+                <tr key={lead.id}>
+                  <td>{lead.created_at}</td>
+                  <td>{lead.name}</td>
+                  <td>{lead.company}</td>
+                  <td>{lead.email}</td>
+                  <td>{lead.phone}</td>
+                  <td>
+                    <strong>{lead.score}</strong>
+                  </td>
+                  <td>{lead.level}</td>
+                  <td>{lead.email_status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <>
+          <section className="prospect-search">
+            <label>
+              Territorio
+              <select value={areaId} onChange={(event) => setAreaId(event.target.value)}>
+                {searchAreas.map((area) => (
+                  <option key={area.id} value={area.id}>
+                    {area.label}
+                  </option>
                 ))}
-              </fieldset>
-            ))}
-          </div>
+              </select>
+            </label>
+            <label>
+              Categoria
+              <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+                {targetCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    Target {category.tier} - {category.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="submit-button" type="button" disabled={searching} onClick={searchProspects}>
+              {searching ? "Ricerca..." : "Cerca 20 aziende"}
+            </button>
+          </section>
 
-          <button className="submit-button" type="submit">
-            Genera report PDF
-          </button>
-          <p className="status" role="status">
-            {status}
+          <p className="prospect-note">
+            I risultati sono prospect pubblici da qualificare. La dimensione aziendale e i decisori
+            devono essere verificati prima del contatto.
           </p>
-        </form>
 
-        {result ? (
-          <aside className="result-panel">
-            <span className="panel-label">Risultato</span>
-            <div className="score">
-              <span>{result.score}</span>
-              <small>/100</small>
-            </div>
-            <h2>{result.level}</h2>
-            <p>{result.summary}</p>
-            {result.assessment ? (
-              <div className="assessment-summary">
-                <h3>Criticita rilevate</h3>
-                <ul>
-                  {result.assessment.criticities.slice(0, 3).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-                <h3>Interventi prioritari</h3>
-                <ul>
-                  {result.assessment.urgentActions.slice(0, 3).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-                <h3>Benefici stimati</h3>
-                <ul>
-                  {result.assessment.benefits.slice(0, 3).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <div className="actions">
-              <a className="secondary-link" href={result.reportUrl} target="_blank" rel="noreferrer">
-                Scarica PDF
-              </a>
-              <a className="primary-link" href={result.consultationUrl} target="_blank" rel="noreferrer">
-                Prenota consulenza
-              </a>
-            </div>
-            <div className="calendly-box">
-              <iframe title="Prenota consulenza Calendly" src={calendlyEmbed} />
-            </div>
-          </aside>
-        ) : null}
-      </section>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Score</th>
+                  <th>Azienda</th>
+                  <th>Target</th>
+                  <th>Contatti pubblici</th>
+                  <th>Segnali</th>
+                  <th>Stato</th>
+                  <th>Azioni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prospects.map((prospect) => (
+                  <tr key={prospect.id}>
+                    <td>
+                      <strong>{prospect.score}</strong>
+                      <small className="table-detail">{prospect.priority}</small>
+                    </td>
+                    <td>
+                      <strong>{prospect.company}</strong>
+                      <small className="table-detail">{prospect.address}</small>
+                    </td>
+                    <td>
+                      <span className={`tier-badge tier-${prospect.target_tier}`}>
+                        {prospect.target_tier}
+                      </span>
+                      <small className="table-detail">{prospect.category_label}</small>
+                    </td>
+                    <td>
+                      {prospect.email && <span>{prospect.email}</span>}
+                      {prospect.phone && <span>{prospect.phone}</span>}
+                      {prospect.contact_data_status !== "complete" && (
+                        <small className="contact-warning">
+                          Non importabile: mancano email o telefono
+                        </small>
+                      )}
+                      <div className="compact-links">
+                        {prospect.website && (
+                          <a href={prospect.website} target="_blank" rel="noreferrer">
+                            Sito
+                          </a>
+                        )}
+                        {prospect.maps_url && (
+                          <a href={prospect.maps_url} target="_blank" rel="noreferrer">
+                            Maps
+                          </a>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <small>{prospect.qualification_notes}</small>
+                      {prospect.rating && (
+                        <small className="table-detail">
+                          Google {prospect.rating} ({prospect.reviews_count})
+                        </small>
+                      )}
+                    </td>
+                    <td>
+                      <span>{prospect.status}</span>
+                      <small className="table-detail">{prospect.brevo_status}</small>
+                    </td>
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          disabled={!prospect.email || !prospect.phone}
+                          title={
+                            !prospect.email || !prospect.phone
+                              ? "Servono email e telefono per importare il prospect in Brevo"
+                              : prospect.status === "approved"
+                                ? "Importa nuovamente il prospect nella lista Brevo"
+                                : "Approva e importa in Brevo"
+                          }
+                          onClick={() => updateProspect(prospect.id, "approved")}
+                        >
+                          {prospect.status === "approved" ? "Reimporta" : "Approva"}
+                        </button>
+                        <button type="button" onClick={() => updateProspect(prospect.id, "discarded")}>
+                          Scarta
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </main>
   );
 }
