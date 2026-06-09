@@ -14,6 +14,12 @@ type BrevoFollowupInput = {
   phone: string;
 };
 
+type BrevoProspectInput = {
+  email: string;
+  company: string;
+  phone: string;
+};
+
 function normalizeItalianPhone(phone: string) {
   const trimmed = phone.trim();
   const digits = trimmed.replace(/\D/g, "");
@@ -248,4 +254,94 @@ export async function addBrevoContactForFollowup(input: BrevoFollowupInput) {
   return phoneWasDuplicate
     ? "followup_added_brevo_phone_duplicate"
     : "followup_added_brevo";
+}
+
+export async function addBrevoProspectContact(input: BrevoProspectInput) {
+  const apiKey = process.env.BREVO_API_KEY?.trim();
+  const listId = Number(process.env.BREVO_PROSPECT_LIST_ID?.trim() || "0");
+  const sms = normalizeItalianPhone(input.phone);
+  const email = input.email.trim().toLowerCase();
+  const company = input.company.trim();
+
+  if (!apiKey) return "prospect_brevo_not_configured";
+  if (!Number.isInteger(listId) || listId <= 0) return "prospect_brevo_invalid_list_id";
+  if (!email || !sms) return "prospect_brevo_missing_contacts";
+  const brevoApiKey = apiKey;
+
+  const baseAttributes: Record<string, string> = {
+    FIRSTNAME: company,
+    SMS: sms
+  };
+  let savedAttributes = baseAttributes;
+
+  async function saveContact(attributes: Record<string, string>) {
+    return fetch("https://api.brevo.com/v3/contacts", {
+      method: "POST",
+      headers: {
+        "api-key": brevoApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email,
+        updateEnabled: true,
+        attributes
+      })
+    });
+  }
+
+  let response = await saveContact(baseAttributes);
+  let phoneWasDuplicate = false;
+
+  if (!response.ok) {
+    let errorCode = "";
+
+    try {
+      const body = (await response.json()) as { code?: string };
+      errorCode = body.code ? `_${body.code.replace(/[^a-z0-9_-]/gi, "")}` : "";
+    } catch {
+      // The HTTP status remains available when Brevo does not return JSON.
+    }
+
+    if (response.status === 400 && errorCode === "_duplicate_parameter") {
+      phoneWasDuplicate = true;
+      savedAttributes = { FIRSTNAME: company };
+      response = await saveContact(savedAttributes);
+    }
+
+    if (!response.ok) {
+      return `prospect_brevo_error_${response.status}${errorCode}`;
+    }
+  }
+
+  const updateResponse = await fetch(
+    `https://api.brevo.com/v3/contacts/${encodeURIComponent(email)}`,
+    {
+      method: "PUT",
+      headers: {
+        "api-key": brevoApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        attributes: savedAttributes,
+        listIds: [listId]
+      })
+    }
+  );
+
+  if (!updateResponse.ok) {
+    let errorCode = "";
+
+    try {
+      const body = (await updateResponse.json()) as { code?: string };
+      errorCode = body.code ? `_${body.code.replace(/[^a-z0-9_-]/gi, "")}` : "";
+    } catch {
+      // The HTTP status remains available when Brevo does not return JSON.
+    }
+
+    return `prospect_list_update_error_${updateResponse.status}${errorCode}`;
+  }
+
+  return phoneWasDuplicate
+    ? "prospect_added_brevo_phone_duplicate"
+    : "prospect_added_brevo";
 }
