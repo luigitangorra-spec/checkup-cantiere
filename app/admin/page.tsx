@@ -22,6 +22,7 @@ type Prospect = {
   target_tier: string;
   address: string;
   phone: string;
+  email: string;
   website: string;
   maps_url: string;
   rating: number | null;
@@ -29,6 +30,8 @@ type Prospect = {
   score: number;
   priority: string;
   status: "new" | "approved" | "discarded" | "contacted";
+  contact_data_status: string;
+  brevo_status: string;
   qualification_notes: string;
 };
 
@@ -108,11 +111,18 @@ export default function AdminPage() {
         body: JSON.stringify({ token, id, status: nextStatus })
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Aggiornamento non riuscito");
+      if (!response.ok) {
+        await loadProspects();
+        throw new Error(payload.error || "Aggiornamento non riuscito");
+      }
       setProspects((current) =>
-        current.map((prospect) => (prospect.id === id ? { ...prospect, status: nextStatus } : prospect))
+        current.map((prospect) => (prospect.id === id ? payload : prospect))
       );
-      setStatus("Prospect aggiornato.");
+      setStatus(
+        nextStatus === "approved"
+          ? "Prospect approvato e trasferito nella lista Brevo."
+          : "Prospect aggiornato."
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Errore durante l'aggiornamento");
     }
@@ -256,7 +266,13 @@ export default function AdminPage() {
                       <small className="table-detail">{prospect.category_label}</small>
                     </td>
                     <td>
+                      {prospect.email && <span>{prospect.email}</span>}
                       {prospect.phone && <span>{prospect.phone}</span>}
+                      {prospect.contact_data_status !== "complete" && (
+                        <small className="contact-warning">
+                          Non importabile: mancano email o telefono
+                        </small>
+                      )}
                       <div className="compact-links">
                         {prospect.website && (
                           <a href={prospect.website} target="_blank" rel="noreferrer">
@@ -278,11 +294,25 @@ export default function AdminPage() {
                         </small>
                       )}
                     </td>
-                    <td>{prospect.status}</td>
+                    <td>
+                      <span>{prospect.status}</span>
+                      <small className="table-detail">{prospect.brevo_status}</small>
+                    </td>
                     <td>
                       <div className="row-actions">
-                        <button type="button" onClick={() => updateProspect(prospect.id, "approved")}>
-                          Approva
+                        <button
+                          type="button"
+                          disabled={!prospect.email || !prospect.phone}
+                          title={
+                            !prospect.email || !prospect.phone
+                              ? "Servono email e telefono per importare il prospect in Brevo"
+                              : prospect.status === "approved"
+                                ? "Importa nuovamente il prospect nella lista Brevo"
+                                : "Approva e importa in Brevo"
+                          }
+                          onClick={() => updateProspect(prospect.id, "approved")}
+                        >
+                          {prospect.status === "approved" ? "Reimporta" : "Approva"}
                         </button>
                         <button type="button" onClick={() => updateProspect(prospect.id, "discarded")}>
                           Scarta
